@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules for ArchiTeams Project
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Simplified admin check - will be enhanced later when needed
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.admin == true;
+    }
+    
+    // Verification files - users can upload their own verification documents
+    match /verification/{userId}/{fileName} {
+      // Allow users to upload their own verification files
+      allow create: if isAuthenticated() &&
+                    isOwner(userId) &&
+                    // File size limit: 50MB
+                    request.resource.size < 50 * 1024 * 1024 &&
+                    // Allowed file types for verification
+                    (request.resource.contentType.matches('image/.*') ||
+                     request.resource.contentType == 'application/pdf' ||
+                     request.resource.contentType.matches('application/.*dwg.*') ||
+                     request.resource.contentType.matches('application/.*dxf.*') ||
+                     request.resource.contentType.matches('application/zip.*') ||
+                     request.resource.contentType == 'application/x-zip-compressed' ||
+                     request.resource.contentType == 'application/octet-stream') &&
+                    // Ensure filename follows expected pattern (starts with national_id_ or sample_project_)
+                    (fileName.matches('national_id_.*') || fileName.matches('sample_project_.*'));
+      
+      // Allow users to read their own files
+      allow read: if isAuthenticated() && isOwner(userId);
+      
+      // Allow users to update their own files
+      allow update: if isAuthenticated() && isOwner(userId);
+      
+      // Allow users to delete their own files
+      allow delete: if isAuthenticated() && isOwner(userId);
+    }
+    
+    // Additional rule for verification files with any pattern (fallback)
+    match /verification/{userId}/{allFiles=**} {
+      // Allow authenticated users to manage their own verification files
+      allow read, write, delete: if isAuthenticated() && isOwner(userId);
+    }
+    
+    // Portfolio files - verified designers can upload portfolio images
+    match /portfolios/{userId}/{fileName} {
+      allow create, read, update, delete: if isAuthenticated() &&
+                                          isOwner(userId) &&
+                                          request.resource.size < 20 * 1024 * 1024 &&
+                                          request.resource.contentType.matches('image/.*');
+    }
+    
+    // Project files - designers can upload project files
+    match /projects/{projectId}/{fileName} {
+      allow create, read, update, delete: if isAuthenticated() &&
+                                          request.resource.size < 100 * 1024 * 1024;
+    }
+    
+    // Profile pictures - users can upload their own profile pictures
+    match /profiles/{userId}/avatar.{extension} {
+      allow create, read, update, delete: if isAuthenticated() &&
+                                          isOwner(userId) &&
+                                          request.resource.size < 5 * 1024 * 1024 &&
+                                          request.resource.contentType.matches('image/.*');
+    }
+    
+    // Admin files - for future admin functionality
+    match /admin/{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
+    
+    // Default deny rule
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
